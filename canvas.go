@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"compress/zlib"
 	"errors"
+	"github.com/anonymous5l/wzexplorer/wzimage"
 	"image"
 	"io"
-	"wzexplorer/wzimage"
 )
 
 type CanvasFormat int

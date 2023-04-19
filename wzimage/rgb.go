@@ -2,9 +2,9 @@ package wzimage
 
 import (
 	"errors"
+	"github.com/anonymous5l/wzexplorer/wzcolor"
 	"image"
 	"image/color"
-	"wzexplorer/wzcolor"
 )
 
 type RGB565 struct {

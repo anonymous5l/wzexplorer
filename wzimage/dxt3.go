@@ -3,9 +3,9 @@ package wzimage
 import (
 	"encoding/binary"
 	"errors"
+	"github.com/anonymous5l/wzexplorer/wzcolor"
 	"image"
 	"image/color"
-	"wzexplorer/wzcolor"
 )
 
 func genColorTable(colorTable []color.Color, c0, c1 uint16) {
