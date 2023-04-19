@@ -1,4 +1,4 @@
-module wzexplorer
+module github.com/anonymous5l/wzexplorer
 
 go 1.20
 
