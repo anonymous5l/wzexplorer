@@ -54,19 +54,17 @@ func (s *sound) parse(f *file) (err error) {
 		return
 	}
 
-	// FIXME not for sure current format 1 is pcm 2 is mp3
-	var format byte
+	// FIXME encrypt header & mp3 extra header decode
 
-	format, err = b.ReadByte()
-	if err != nil {
-		return
+	guidHeader := make([]byte, 51, 51)
+	// skip GUIDs header
+	if n, err := b.Read(guidHeader); err != nil {
+		return err
+	} else if n != len(guidHeader) {
+		return io.EOF
 	}
 
-	if _, err = b.Seek(50, io.SeekCurrent); err != nil {
-		return
-	}
-
-	if format == 2 {
+	if guidHeader[0] != 1 {
 		var wavFormatLen byte
 		if wavFormatLen, err = b.ReadByte(); err != nil {
 			return
@@ -80,11 +78,6 @@ func (s *sound) parse(f *file) (err error) {
 		if n != int(wavFormatLen) {
 			err = io.EOF
 			return
-		}
-
-		// encrypted header?
-		if binary.LittleEndian.Uint16(header[16:]) > 0 {
-			b.provider.crypt.Transform(header)
 		}
 		if err = binary.Read(bytes.NewReader(header), binary.LittleEndian, &s.format); err != nil {
 			return

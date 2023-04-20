@@ -13,9 +13,9 @@ import (
 type EachObjectFunc = func(string, Object) (bool, error)
 
 type GetObject interface {
-	GetStringPath(string) (Object, error)
-	GetPaths([]string) (Object, error)
 	Get(string) (Object, error)
+	GetPath(string) (Object, error)
+	GetPaths([]string) (Object, error)
 	Each(EachObjectFunc) (bool, error)
 }
 
@@ -128,10 +128,15 @@ func (o *object) parseVariant() (err error) {
 		if size, err = b.ReadInt32(); err != nil {
 			return
 		}
+		endPosition := int64(size) + b.off
 		newObj := newObject(o.f, o.baseOffset)
 		newObj.size = size
 		if err = newObj.parseImage(); err != nil {
 			return err
+		}
+		// parse image BUG
+		if b.off != endPosition {
+			return errors.New("image read out of range")
 		}
 		o.t = ObjectTypeVariant
 		o.o = Object(newObj)
@@ -376,19 +381,20 @@ func (o *object) parseDirectory() error {
 					if e.o, err = NewFiles(b.provider, filename); err != nil {
 						return err
 					}
-					e.flag |= flagLoaded | flagDirectory
+					e.flag = flagLoaded | flagDirectory
 				} else if o.flag&flagFile == flagFile {
 					folder := filepath.Dir(o.f.filename)
 					filename := filepath.Join(folder, name+".wz")
 					if e.o, err = NewFile(b.provider, filename); err != nil {
 						return err
 					}
-					e.flag |= flagLoaded | flagFile
+					e.flag = flagLoaded | flagFile
 				}
 			} else {
 				if err = e.parseImage(); err != nil {
 					return err
 				}
+				name = strings.TrimSuffix(name, ".img")
 			}
 
 			return nil
@@ -405,9 +411,11 @@ func (o *object) parseDirectory() error {
 
 func (o *object) parse() (err error) {
 	if o.flag&flagLoaded == flagLoaded {
-		if o.flag&flagFile == flagFile {
-			err = o.o.(*file).parse()
-		}
+		return
+	}
+
+	if o.flag&flagBase == 0 && o.flag&flagFile == flagFile {
+		err = o.o.(*file).parse()
 		return
 	}
 
@@ -458,17 +466,23 @@ func (o *object) Object() Object {
 }
 
 func (o *object) Canvas() Canvas {
-	if o.Type() != ObjectTypeCanvas {
-		return nil
+	if o.Value() != nil {
+		if o.Type() != ObjectTypeCanvas {
+			return o.Object().Canvas()
+		}
+		return o.Value().(Canvas)
 	}
-	return o.Object().Value().(Canvas)
+	return nil
 }
 
 func (o *object) Vector() image.Point {
-	if o.Type() != ObjectTypeVector {
-		return image.Pt(0, 0)
+	if o.Value() != nil {
+		if o.Type() != ObjectTypeVector {
+			return o.Object().Vector()
+		}
+		return o.Value().(image.Point)
 	}
-	return o.Value().(image.Point)
+	return image.Pt(0, 0)
 }
 
 func (o *object) Int16() int16 {
@@ -546,13 +560,16 @@ func (o *object) String() string {
 }
 
 func (o *object) Sound() Sound {
-	if o.Type() != ObjectTypeSound {
-		return nil
+	if o.Value() != nil {
+		if o.Type() != ObjectTypeSound {
+			return o.Object().Sound()
+		}
+		return o.Value().(Sound)
 	}
-	return o.Object().Value().(Sound)
+	return nil
 }
 
-func (o *object) GetStringPath(p string) (Object, error) {
+func (o *object) GetPath(p string) (Object, error) {
 	return o.GetPaths(strings.Split(filepath.Clean(p), string(os.PathSeparator)))
 }
 
