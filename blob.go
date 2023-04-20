@@ -17,17 +17,17 @@ type Blob struct {
 	off, len int64
 	o        binary.ByteOrder
 	fd       BlobReader
-	crypt    *Crypt
+	provider *CryptProvider
 	swap     []byte // attention: concurrent problem
 }
 
-func newBlob(reader BlobReader, o binary.ByteOrder, crypt *Crypt, size int64) *Blob {
+func newBlob(reader BlobReader, o binary.ByteOrder, crypt *CryptProvider, size int64) *Blob {
 	b := &Blob{}
 	b.off = 0
 	b.len = size
 	b.fd = reader
 	b.o = o
-	b.crypt = crypt
+	b.provider = crypt
 	b.swap = make([]byte, 8, 8)
 	return b
 }
@@ -225,7 +225,7 @@ func (b *Blob) ReadUTF8String(size int, mask bool) (value string, err error) {
 		}
 	}
 
-	b.crypt.Transform(buf)
+	b.provider.crypt.Transform(buf)
 
 	value = string(buf)
 
@@ -250,15 +250,15 @@ func (b *Blob) ReadUTF16String(size int, mask bool) (value string, err error) {
 	var unicode []uint16
 
 	if mask {
-		b.crypt.ExpandXorTable(size)
-		xor := b.crypt.Xor()
+		b.provider.crypt.ExpandXorTable(size)
+		xor := b.provider.crypt.Xor()
 		start := uint16(0xaaaa)
 		for i := 0; i < size; i += 2 {
 			unicode = append(unicode, b.o.Uint16(buf[i:])^start^b.o.Uint16(xor[i:]))
 			start++
 		}
 	} else {
-		b.crypt.Transform(buf)
+		b.provider.crypt.Transform(buf)
 		for i := 0; i < size; i += 2 {
 			unicode = append(unicode, b.o.Uint16(buf[i:]))
 		}

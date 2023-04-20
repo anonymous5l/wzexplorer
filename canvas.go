@@ -118,7 +118,7 @@ func (c *canvas) Image() (bitmap image.Image, err error) {
 		for len(data) > 0 {
 			blockSize := int(b.o.Uint32(data))
 			transform := data[4 : 4+blockSize]
-			b.crypt.Transform(transform)
+			b.provider.crypt.Transform(transform)
 			shrinkData = append(shrinkData, transform...)
 			data = data[4+blockSize:]
 		}
@@ -177,8 +177,10 @@ func (c *canvas) parse(f *file, offset int64) error {
 	}
 
 	c.object = newObject(f, offset)
+	c.object.t = ObjectTypeVariantNil
 	if hasProperty > 0 {
-		if err = c.object.parseObjectProperty(); err != nil {
+		c.object.t = ObjectTypeProperties
+		if err = c.object.parse(); err != nil {
 			return err
 		}
 	}

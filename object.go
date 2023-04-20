@@ -4,17 +4,19 @@ import (
 	"errors"
 	"image"
 	"io"
-	"path"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
 
-type EachObjectFunc = func(string, Object) bool
+type EachObjectFunc = func(string, Object) (bool, error)
 
 type GetObject interface {
-	GetByPaths([]string) Object
-	Get(string) Object
-	Each(EachObjectFunc) error
+	GetStringPath(string) (Object, error)
+	GetPaths([]string) (Object, error)
+	Get(string) (Object, error)
+	Each(EachObjectFunc) (bool, error)
 }
 
 type Object interface {
@@ -43,14 +45,21 @@ const (
 	ObjectTypeVector
 	ObjectTypeUOL
 	ObjectTypeSound
-	ObjectVariant
-	ObjectVariantNil
-	ObjectVariantInt16
-	ObjectVariantInt32
-	ObjectVariantInt64
-	ObjectVariantFloat32
-	ObjectVariantFloat64
-	ObjectVariantString
+	ObjectTypeVariant
+	ObjectTypeVariantNil
+	ObjectTypeVariantInt16
+	ObjectTypeVariantInt32
+	ObjectTypeVariantInt64
+	ObjectTypeVariantFloat32
+	ObjectTypeVariantFloat64
+	ObjectTypeVariantString
+)
+
+const (
+	flagDirectory = 1 << iota
+	flagLoaded    = 1 << iota
+	flagFile      = 1 << iota
+	flagBase      = 1 << iota
 )
 
 type object struct {
@@ -60,6 +69,7 @@ type object struct {
 	t                  ObjectType
 	f                  *file
 	o                  interface{}
+	flag               byte
 }
 
 func newObject(f *file, baseOffset int64) *object {
@@ -78,24 +88,24 @@ func (o *object) parseVariant() (err error) {
 	}
 	switch t {
 	case 0x00: // nil
-		o.t = ObjectVariantNil
+		o.t = ObjectTypeVariantNil
 	case 0x02, 0x0b: // int16
-		o.t = ObjectVariantInt16
+		o.t = ObjectTypeVariantInt16
 		if o.o, err = b.ReadInt16(); err != nil {
 			return
 		}
 	case 0x03, 0x13: // int32
-		o.t = ObjectVariantInt32
+		o.t = ObjectTypeVariantInt32
 		if o.o, err = b.ReadCompressInt32(); err != nil {
 			return
 		}
 	case 0x14: // int64
-		o.t = ObjectVariantInt64
+		o.t = ObjectTypeVariantInt64
 		if o.o, err = b.ReadCompressInt64(); err != nil {
 			return
 		}
 	case 0x04: // float32
-		o.t = ObjectVariantFloat32
+		o.t = ObjectTypeVariantFloat32
 		var f byte
 		if f, err = b.ReadByte(); err != nil {
 			return
@@ -108,10 +118,10 @@ func (o *object) parseVariant() (err error) {
 			o.o = float32(0)
 		}
 	case 0x05: // float64
-		o.t = ObjectVariantFloat64
+		o.t = ObjectTypeVariantFloat64
 		o.o, err = b.ReadFloat64()
 	case 0x08: // string
-		o.t = ObjectVariantString
+		o.t = ObjectTypeVariantString
 		o.o, err = b.ReadUOLString(o.baseOffset)
 	case 0x09: // object
 		var size int32
@@ -123,8 +133,8 @@ func (o *object) parseVariant() (err error) {
 		if err = newObj.parseImage(); err != nil {
 			return err
 		}
-		o.t = ObjectVariant
-		o.o = newObj
+		o.t = ObjectTypeVariant
+		o.o = Object(newObj)
 	default:
 		err = errors.New("invalid variant type")
 	}
@@ -133,7 +143,7 @@ func (o *object) parseVariant() (err error) {
 
 func (o *object) parseObjectProperty() error {
 	b := o.f.b
-	m := make(map[string]*object)
+	m := make(map[string]Object)
 	if _, err := b.Seek(2, io.SeekCurrent); err != nil {
 		return err
 	}
@@ -151,14 +161,14 @@ func (o *object) parseObjectProperty() error {
 		}
 
 		obj := newObject(o.f, o.baseOffset)
-		if err = obj.parseVariant(); err != nil {
+		obj.t = ObjectTypeVariant
+		if err = obj.parse(); err != nil {
 			return err
 		}
 
 		m[name] = obj
 	}
 	o.o = m
-	o.t = ObjectTypeProperties
 	return nil
 }
 
@@ -167,8 +177,7 @@ func (o *object) parseObjectCanvas() error {
 	if err := c.parse(o.f, o.baseOffset); err != nil {
 		return err
 	}
-	o.o = c
-	o.t = ObjectTypeCanvas
+	o.o = Canvas(c)
 	return nil
 }
 
@@ -178,7 +187,7 @@ func (o *object) parseObjectConvex() error {
 	if err != nil {
 		return err
 	}
-	m := make(map[string]*object)
+	m := make(map[string]Object)
 	for i := 0; i < int(props); i++ {
 		no := newObject(o.f, o.baseOffset)
 		if err = no.parseImage(); err != nil {
@@ -187,7 +196,6 @@ func (o *object) parseObjectConvex() error {
 		m[strconv.FormatInt(int64(i), 10)] = no
 	}
 	o.o = m
-	o.t = ObjectTypeConvex
 	return nil
 }
 
@@ -201,21 +209,19 @@ func (o *object) parseObjectVector() (err error) {
 		return
 	}
 	o.o = image.Pt(int(x), int(y))
-	o.t = ObjectTypeVector
 	return
 }
 
 func (o *object) parseObjectUOL() (err error) {
 	b := o.f.b
-	var path string
+	var p string
 	if _, err = b.Seek(1, io.SeekCurrent); err != nil {
 		return
 	}
-	if path, err = b.ReadUOLString(o.baseOffset); err != nil {
+	if p, err = b.ReadUOLString(o.baseOffset); err != nil {
 		return
 	}
-	o.o = path
-	o.t = ObjectTypeUOL
+	o.o = p
 	return
 }
 
@@ -224,8 +230,7 @@ func (o *object) parseSound() (err error) {
 	if err = s.parse(o.f); err != nil {
 		return
 	}
-	o.o = s
-	o.t = ObjectTypeSound
+	o.o = Sound(s)
 	return
 }
 
@@ -240,46 +245,31 @@ func (o *object) parseImage() error {
 		return err
 	}
 
+	o.offset = b.off
 	switch tag {
 	case "Property":
-		if err = o.parseObjectProperty(); err != nil {
-			return err
-		}
+		o.t = ObjectTypeProperties
 	case "Canvas":
-		if err = o.parseObjectCanvas(); err != nil {
-			return err
-		}
+		o.t = ObjectTypeCanvas
 	case "Shape2D#Convex2D":
-		if err = o.parseObjectConvex(); err != nil {
-			return err
-		}
+		o.t = ObjectTypeConvex
 	case "Shape2D#Vector2D":
-		if err = o.parseObjectVector(); err != nil {
-			return err
-		}
+		o.t = ObjectTypeVector
 	case "UOL":
-		if err = o.parseObjectUOL(); err != nil {
-			return err
-		}
+		o.t = ObjectTypeUOL
 	case "Sound_DX8":
-		if err = o.parseSound(); err != nil {
-			return err
-		}
+		o.t = ObjectTypeSound
 	default:
 		return errors.New("invalid tag")
 	}
 
-	return nil
+	return o.parse()
 }
 
 func (o *object) parseDirectory() error {
 	b := o.f.b
-	if _, err := b.Seek(o.offset, io.SeekStart); err != nil {
-		return err
-	}
 
-	m := make(map[string]*object)
-
+	m := make(map[string]Object)
 	elements, err := b.ReadCompressInt32()
 	if err != nil {
 		return err
@@ -373,8 +363,27 @@ func (o *object) parseDirectory() error {
 			e.checksum = checksum
 
 			if elemType == 3 {
-				if err = e.parseDirectory(); err != nil {
-					return err
+				e.t = ObjectTypeDirectory
+				if o.flag&flagDirectory == flagDirectory {
+					folder := filepath.Dir(o.f.filename)
+					var filename string
+					if o.flag&flagBase == flagBase {
+						filename = filepath.Join(folder, "..", name)
+					} else {
+						filename = filepath.Join(folder, name)
+					}
+
+					if e.o, err = NewFiles(b.provider, filename); err != nil {
+						return err
+					}
+					e.flag |= flagLoaded | flagDirectory
+				} else if o.flag&flagFile == flagFile {
+					folder := filepath.Dir(o.f.filename)
+					filename := filepath.Join(folder, name+".wz")
+					if e.o, err = NewFile(b.provider, filename); err != nil {
+						return err
+					}
+					e.flag |= flagLoaded | flagFile
 				}
 			} else {
 				if err = e.parseImage(); err != nil {
@@ -389,33 +398,48 @@ func (o *object) parseDirectory() error {
 
 		m[name] = e
 	}
-
 	o.o = m
-	o.t = ObjectTypeDirectory
 
 	return nil
 }
 
-func (o *object) getMap() map[string]*object {
-	if o == nil {
-		return nil
+func (o *object) parse() (err error) {
+	if o.flag&flagLoaded == flagLoaded {
+		if o.flag&flagFile == flagFile {
+			err = o.o.(*file).parse()
+		}
+		return
+	}
+
+	b := o.f.b
+	if _, err = b.Seek(o.offset, io.SeekStart); err != nil {
+		return
 	}
 	switch o.t {
-	case ObjectTypeDirectory, ObjectTypeConvex, ObjectTypeProperties:
-		return o.o.(map[string]*object)
+	case ObjectTypeDirectory:
+		err = o.parseDirectory()
+	case ObjectTypeProperties:
+		err = o.parseObjectProperty()
 	case ObjectTypeCanvas:
-		return o.o.(*canvas).getMap()
-	case ObjectVariant:
-		return o.o.(*object).getMap()
+		err = o.parseObjectCanvas()
+	case ObjectTypeConvex:
+		err = o.parseObjectConvex()
+	case ObjectTypeVector:
+		err = o.parseObjectVector()
+	case ObjectTypeUOL:
+		err = o.parseObjectUOL()
+	case ObjectTypeSound:
+		err = o.parseSound()
+	case ObjectTypeVariant:
+		err = o.parseVariant()
+	default:
+		err = errors.New("invalid object type in lazy parse")
 	}
-	return nil
-}
 
-func (o *object) get(name string) *object {
-	if m := o.getMap(); m != nil {
-		return m[name]
+	if err == nil {
+		o.flag |= flagLoaded
 	}
-	return nil
+	return
 }
 
 func (o *object) Type() ObjectType {
@@ -427,34 +451,58 @@ func (o *object) Value() interface{} {
 }
 
 func (o *object) Object() Object {
-	return o.Value().(*object)
+	if obj, ok := o.Value().(Object); ok {
+		return obj
+	}
+	return nil
 }
 
 func (o *object) Canvas() Canvas {
-	return o.Object().Value().(*canvas)
+	if o.Type() != ObjectTypeCanvas {
+		return nil
+	}
+	return o.Object().Value().(Canvas)
 }
 
 func (o *object) Vector() image.Point {
+	if o.Type() != ObjectTypeVector {
+		return image.Pt(0, 0)
+	}
 	return o.Value().(image.Point)
 }
 
 func (o *object) Int16() int16 {
+	if o.Type() != ObjectTypeVariantInt16 {
+		return -1
+	}
 	return o.Value().(int16)
 }
 
 func (o *object) Int32() int32 {
+	if o.Type() != ObjectTypeVariantInt32 {
+		return -1
+	}
 	return o.Value().(int32)
 }
 
 func (o *object) Int64() int64 {
+	if o.Type() != ObjectTypeVariantInt64 {
+		return -1
+	}
 	return o.Value().(int64)
 }
 
 func (o *object) Float32() float32 {
+	if o.Type() != ObjectTypeVariantFloat32 {
+		return -1
+	}
 	return o.Value().(float32)
 }
 
 func (o *object) Float64() float64 {
+	if o.Type() != ObjectTypeVariantFloat64 {
+		return -1
+	}
 	return o.Value().(float64)
 }
 
@@ -476,21 +524,21 @@ func (o *object) String() string {
 			strconv.FormatInt(int64(p.X), 10) +
 			" Y: " +
 			strconv.FormatInt(int64(p.Y), 10)
-	case ObjectVariant:
+	case ObjectTypeVariant:
 		return o.Object().String()
-	case ObjectVariantNil:
+	case ObjectTypeVariantNil:
 		return "<nil>"
-	case ObjectVariantInt16:
+	case ObjectTypeVariantInt16:
 		return strconv.FormatInt(int64(o.Int16()), 10)
-	case ObjectVariantInt32:
+	case ObjectTypeVariantInt32:
 		return strconv.FormatInt(int64(o.Int32()), 10)
-	case ObjectVariantInt64:
+	case ObjectTypeVariantInt64:
 		return strconv.FormatInt(o.Int64(), 10)
-	case ObjectVariantFloat32:
+	case ObjectTypeVariantFloat32:
 		return strconv.FormatFloat(float64(o.Float32()), 'f', -1, 32)
-	case ObjectVariantFloat64:
+	case ObjectTypeVariantFloat64:
 		return strconv.FormatFloat(o.Float64(), 'f', -1, 64)
-	case ObjectVariantString, ObjectTypeUOL:
+	case ObjectTypeVariantString, ObjectTypeUOL:
 		return o.Value().(string)
 	}
 
@@ -498,51 +546,95 @@ func (o *object) String() string {
 }
 
 func (o *object) Sound() Sound {
-	return o.Object().Value().(*sound)
-}
-
-func (o *object) GetByPaths(paths []string) Object {
-	if len(paths) == 0 || o == nil {
+	if o.Type() != ObjectTypeSound {
 		return nil
 	}
+	return o.Object().Value().(Sound)
+}
 
-	var cur *object
+func (o *object) GetStringPath(p string) (Object, error) {
+	return o.GetPaths(strings.Split(filepath.Clean(p), string(os.PathSeparator)))
+}
+
+func (o *object) GetPaths(paths []string) (Object, error) {
+	if len(paths) == 0 || o == nil {
+		return nil, nil
+	}
+
+	var (
+		cur Object
+		err error
+	)
 	cur = o
 	for i := 0; i < len(paths); i++ {
 		p := paths[i]
 		if p == "" {
 			continue
 		}
-		if cur = cur.get(p); cur == nil {
-			return nil
+		if cur, err = cur.Get(p); err != nil {
+			return nil, err
+		} else if cur == nil {
+			return nil, nil
 		}
 	}
 
-	if cur != nil && cur.t == ObjectTypeUOL {
-		// get uol object
-		p := path.Join(append(paths,
-			strings.Split(cur.o.(string), "/")...)...)
-		return o.Get(p)
+	if cur != nil && cur.Type() == ObjectTypeUOL {
+		// try get uol object
+		// FIXME if path out of current object can't get right result
+		return o.Get(filepath.Join(append(paths, strings.Split(cur.String(), "/")...)...))
 	}
 
-	return cur
+	return cur, nil
 }
 
-func (o *object) Get(p string) Object {
-	return o.GetByPaths(
-		strings.Split(
-			strings.TrimPrefix(p, "/"), "/"))
-}
-
-func (o *object) Each(cb func(name string, obj Object) bool) error {
-	m := o.getMap()
-	if m == nil {
-		return errors.New("invalid map instance")
+func (o *object) Get(name string) (Object, error) {
+	if err := o.parse(); err != nil {
+		return nil, err
 	}
-	for k, v := range m {
-		if next := cb(k, v); !next {
-			return nil
+
+	switch o.t {
+	case ObjectTypeDirectory:
+		switch m := o.o.(type) {
+		case map[string]Object:
+			if obj, ok := m[name]; ok {
+				return obj, nil
+			}
+		case GetObject:
+			return m.Get(name)
+		default:
+			return nil, errors.New("invalid object")
 		}
+	case ObjectTypeConvex, ObjectTypeProperties:
+		m := o.o.(map[string]Object)
+		if obj, ok := m[name]; ok {
+			return obj, nil
+		}
+	case ObjectTypeCanvas:
+		return o.o.(*canvas).Get(name)
+	case ObjectTypeVariant:
+		return o.o.(*object).Get(name)
 	}
-	return nil
+	return nil, nil
+}
+
+func (o *object) Each(cb EachObjectFunc) (bool, error) {
+	if err := o.parse(); err != nil {
+		return false, err
+	}
+
+	switch m := o.o.(type) {
+	case map[string]Object:
+		for k, v := range m {
+			if next, err := cb(k, v); err != nil {
+				return false, err
+			} else if !next {
+				return false, nil
+			}
+		}
+	case GetObject:
+		return m.Each(cb)
+	default:
+		return false, errors.New("invalid object")
+	}
+	return true, nil
 }

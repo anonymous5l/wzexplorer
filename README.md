@@ -2,6 +2,10 @@
 
 tools of maplestory wz files include `Canvas` `SoundDX8`
 
+* support multiple directory struct
+* support read directory struct from Base.wz or Base directory
+* lazy loading save memory
+
 ## Usage
 
 ```bash
@@ -10,39 +14,42 @@ go get -u github.com/anonymous5l/wzexplorer
 
 ## Examples
 
-for cms v079 example
+example for cms v079 read all struct
 
 ```go
 package main
 
 import (
+	"github.com/anonymous5l/wzexplorer"
 	"image/png"
 	"os"
-	"github.com/anonymous5l/wzexplorer"
 )
 
 func main() {
-	f, err := wzexplorer.NewFile(79, wzexplorer.IvEMS, "/Users/anonymous/Documents/Projects/Golang/maplestory/resources/079/cms/wz/Map.wz")
+	cp, err := wzexplorer.NewCryptProvider(79, wzexplorer.IvEMS)
 	if err != nil {
 		panic(err)
 	}
-	defer f.Close()
 
-	canvas := f.Get("/Back/poisonForest.img/back/0").Canvas()
+	/**
+	wz_files_directory
+        ├── Base.wz
+        └── <...>.wz
+	wz_files_directory
+        ├── Base
+        │   ├── Base.ini
+        │   └── <...>.wz
+        └── <...>
+	*/
 
-	fmt.Println("Image properties:")
-	if err = canvas.Each(func(s string, object wzexplorer.Object) bool {
-		fmt.Println(s, object.String())
-		return true
-	}); err != nil {
+	archive, err := wzexplorer.NewBase(cp, "wz_files_directory")
+	if err != nil {
 		panic(err)
 	}
+	defer archive.Close()
 
-	fmt.Println("size", canvas.Size())
-	fmt.Println("format", canvas.Format().String())
-
-	var img image.Image
-	if img, err = canvas.Image(); err != nil {
+	obj, err := archive.GetStringPath("/Map/Back/poisonForest.img/back/12")
+	if err != nil {
 		panic(err)
 	}
 
@@ -52,8 +59,28 @@ func main() {
 	}
 	defer o.Close()
 
-	if err := png.Encode(o, img); err != nil {
+	img, err := obj.Canvas().Image()
+	if err != nil {
+		panic(err)
+	}
+
+	if err = png.Encode(o, img); err != nil {
 		panic(err)
 	}
 }
+```
+
+* example for single file
+
+```go
+    cp, err := wzexplorer.NewCryptProvider(79, wzexplorer.IvEMS)
+    if err != nil {
+        panic(err)
+    }
+
+    f, err := wzexplorer.NewFile(cp, "filename.wz")
+    if err != nil {
+        panic(err)
+    }
+    defer f.Close()
 ```

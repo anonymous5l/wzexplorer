@@ -5,6 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"errors"
+	"strconv"
 )
 
 var (
@@ -86,4 +87,41 @@ func (c *Crypt) Transform(data []byte) {
 			data[i] ^= c.xor[i]
 		}
 	}
+}
+
+type CryptProvider struct {
+	version int
+	hash    int
+	crypt   *Crypt
+}
+
+func NewCryptProvider(version int, iv []byte) (*CryptProvider, error) {
+	cp := &CryptProvider{}
+
+	crypt, err := newCrypt(iv)
+	if err != nil {
+		return nil, err
+	}
+
+	cp.crypt = crypt
+
+	asciiVersion := strconv.FormatInt(int64(version), 10)
+	for i := 0; i < len(asciiVersion); i++ {
+		cp.hash = (cp.hash << 5) + int(asciiVersion[i]) + 1
+	}
+
+	return cp, nil
+}
+
+func (cp *CryptProvider) Verify(target uint16) error {
+	v := uint16(0xff)
+	for i := 0; i < 4; i++ {
+		v ^= uint16((cp.hash >> (i << 3)) & 0xff)
+	}
+
+	if v != target {
+		return errors.New("invalid version")
+	}
+
+	return nil
 }

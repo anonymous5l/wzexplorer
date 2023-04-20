@@ -54,31 +54,43 @@ func (s *sound) parse(f *file) (err error) {
 		return
 	}
 
-	// skip SoundDX8 guids
-	if _, err = b.Seek(51, io.SeekCurrent); err != nil {
-		return
-	}
+	// FIXME not for sure current format 1 is pcm 2 is mp3
+	var format byte
 
-	var wavFormatLen byte
-	if wavFormatLen, err = b.ReadByte(); err != nil {
-		return
-	}
-	header := make([]byte, wavFormatLen, wavFormatLen)
-	var n int
-	n, err = b.Read(header)
+	format, err = b.ReadByte()
 	if err != nil {
 		return
 	}
-	if n != int(wavFormatLen) {
-		err = io.EOF
+
+	if _, err = b.Seek(50, io.SeekCurrent); err != nil {
 		return
 	}
-	// encrypted header
-	if binary.LittleEndian.Uint16(header[16:]) > 0 {
-		b.crypt.Transform(header)
-	}
-	if err = binary.Read(bytes.NewReader(header), binary.LittleEndian, &s.format); err != nil {
-		return
+
+	if format == 2 {
+		var wavFormatLen byte
+		if wavFormatLen, err = b.ReadByte(); err != nil {
+			return
+		}
+		header := make([]byte, wavFormatLen, wavFormatLen)
+		var n int
+		n, err = b.Read(header)
+		if err != nil {
+			return
+		}
+		if n != int(wavFormatLen) {
+			err = io.EOF
+			return
+		}
+
+		// encrypted header?
+		if binary.LittleEndian.Uint16(header[16:]) > 0 {
+			b.provider.crypt.Transform(header)
+		}
+		if err = binary.Read(bytes.NewReader(header), binary.LittleEndian, &s.format); err != nil {
+			return
+		}
+	} else {
+		s.format.FormatTag = FormatTagMP3
 	}
 
 	s.offset = b.off
