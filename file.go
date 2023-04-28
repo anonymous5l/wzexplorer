@@ -155,16 +155,14 @@ func (f *files) Get(p string) (Object, error) {
 	return nil, nil
 }
 
-func (f *files) Each(cb EachObjectFunc) (bool, error) {
+func (f *files) Each(cb EachObjectFunc) error {
 	fs := f.o.([]File)
 	for i := 0; i < len(fs); i++ {
-		if c, err := fs[i].Each(cb); err != nil {
-			return false, err
-		} else if !c {
-			return c, nil
+		if err := fs[i].Each(cb); err != nil {
+			return err
 		}
 	}
-	return true, nil
+	return nil
 }
 
 func getIndexFile(i int, name, ext string) string {

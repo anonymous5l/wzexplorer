@@ -10,13 +10,15 @@ import (
 	"strings"
 )
 
-type EachObjectFunc = func(string, Object) (bool, error)
+var EachInterrupt = errors.New("interrupt")
+
+type EachObjectFunc = func(string, Object) error
 
 type GetObject interface {
 	Get(string) (Object, error)
 	GetPath(string) (Object, error)
 	GetPaths([]string) (Object, error)
-	Each(EachObjectFunc) (bool, error)
+	Each(EachObjectFunc) error
 }
 
 type Object interface {
@@ -634,24 +636,25 @@ func (o *object) Get(name string) (Object, error) {
 	return nil, nil
 }
 
-func (o *object) Each(cb EachObjectFunc) (bool, error) {
+func (o *object) Each(cb EachObjectFunc) error {
 	if err := o.parse(); err != nil {
-		return false, err
+		return err
 	}
 
 	switch m := o.o.(type) {
 	case map[string]Object:
 		for k, v := range m {
-			if next, err := cb(k, v); err != nil {
-				return false, err
-			} else if !next {
-				return false, nil
+			if err := cb(k, v); err != nil {
+				if err == EachInterrupt {
+					return nil
+				}
+				return err
 			}
 		}
 	case GetObject:
 		return m.Each(cb)
 	default:
-		return false, errors.New("invalid object")
+		return errors.New("invalid object")
 	}
-	return true, nil
+	return nil
 }
