@@ -6,7 +6,6 @@ import (
 	"golang.org/x/exp/mmap"
 	"io"
 	"math"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -121,44 +120,6 @@ func (f *files) Close() error {
 	fs := f.o.([]File)
 	for i := 0; i < len(fs); i++ {
 		if err := fs[i].Close(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (f *files) GetStringPath(p string) (Object, error) {
-	return f.GetPaths(strings.Split(filepath.Clean(p), string(os.PathSeparator)))
-}
-
-func (f *files) GetPaths(paths []string) (Object, error) {
-	fs := f.o.([]File)
-	for i := 0; i < len(fs); i++ {
-		if obj, err := fs[i].GetPaths(paths); err != nil {
-			return nil, err
-		} else if obj != nil {
-			return obj, nil
-		}
-	}
-	return nil, nil
-}
-
-func (f *files) Get(p string) (Object, error) {
-	fs := f.o.([]File)
-	for i := 0; i < len(fs); i++ {
-		if obj, err := fs[i].Get(p); err != nil {
-			return nil, err
-		} else if obj != nil {
-			return obj, nil
-		}
-	}
-	return nil, nil
-}
-
-func (f *files) Each(cb EachObjectFunc) error {
-	fs := f.o.([]File)
-	for i := 0; i < len(fs); i++ {
-		if err := fs[i].Each(cb); err != nil {
 			return err
 		}
 	}
