@@ -158,7 +158,6 @@ func (o *object) parseVariant() (err error) {
 
 func (o *object) parseObjectProperty() error {
 	b := o.f.b
-	m := make(map[string]Object)
 	if _, err := b.Seek(2, io.SeekCurrent); err != nil {
 		return err
 	}
@@ -167,6 +166,8 @@ func (o *object) parseObjectProperty() error {
 	if err != nil {
 		return err
 	}
+
+	m := make(Properties[KVPair], props, props)
 
 	var name string
 	for i := 0; i < int(props); i++ {
@@ -180,7 +181,7 @@ func (o *object) parseObjectProperty() error {
 			return err
 		}
 
-		m[name] = obj
+		m[i] = KVPair{Key: name, Value: obj}
 	}
 	o.o = m
 	return nil
@@ -201,13 +202,16 @@ func (o *object) parseObjectConvex() error {
 	if err != nil {
 		return err
 	}
-	m := make(map[string]Object)
+	m := make(Properties[KVPair], props, props)
 	for i := 0; i < int(props); i++ {
 		no := newObject(o.f, o.baseOffset)
 		if err = no.parseImage(); err != nil {
 			return err
 		}
-		m[strconv.FormatInt(int64(i), 10)] = no
+		m[i] = KVPair{
+			Key:   strconv.FormatInt(int64(i), 10),
+			Value: no,
+		}
 	}
 	o.o = m
 	return nil
@@ -529,15 +533,19 @@ func (o *object) Float64() float64 {
 }
 
 func (o *object) Array() ([]Object, error) {
-	var keys sort.StringSlice
+	var keys sort.IntSlice
 	_ = o.Each(func(s string, o Object) error {
-		keys = append(keys, s)
+		k, err := strconv.ParseInt(s, 10, 32)
+		if err != nil {
+			return err
+		}
+		keys = append(keys, int(k))
 		return nil
 	})
 	sort.Sort(keys)
 	var values []Object
 	for i := 0; i < len(keys); i++ {
-		val, err := o.Get(keys[i])
+		val, err := o.Get(strconv.FormatInt(int64(keys[i]), 10))
 		if err != nil {
 			return nil, err
 		}
@@ -608,9 +616,12 @@ func (o *object) get(name string) (Object, error) {
 			return nil, errors.New("invalid object")
 		}
 	case ObjectTypeConvex, ObjectTypeProperties:
-		m := o.o.(map[string]Object)
-		if obj, ok := m[name]; ok {
-			return obj, nil
+		properties := o.o.(Properties[KVPair])
+		for i := 0; i < len(properties); i++ {
+			p := properties[i]
+			if p.Key == name {
+				return p.Value, nil
+			}
 		}
 	case ObjectTypeCanvas:
 		return o.o.(*canvas).get(name)
@@ -675,6 +686,13 @@ func (o *object) Each(cb EachObjectFunc) error {
 	}
 
 	switch m := o.o.(type) {
+	case Properties[KVPair]:
+		for i := 0; i < len(m); i++ {
+			p := m[i]
+			if err := cb(p.Key, p.Value); err != nil {
+				return err
+			}
+		}
 	case map[string]Object:
 		for k, v := range m {
 			if err := cb(k, v); err != nil {

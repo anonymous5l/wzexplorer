@@ -30,11 +30,12 @@ type Sound interface {
 	Stream() ([]byte, error)
 }
 
+// sound Sound_DX8
 type sound struct {
 	f        *file
 	stream   []byte
-	duration int32
 	size     int32
+	duration int32
 	offset   int64
 	format   WaveFormat
 }
@@ -43,28 +44,41 @@ func (s *sound) parse(f *file) (err error) {
 	b := f.b
 	s.f = f
 
-	if _, err = b.Seek(1, io.SeekCurrent); err != nil {
+	// skip reserved idk field
+	if _, err = b.ReadByte(); err != nil {
 		return
 	}
 
 	if s.size, err = b.ReadCompressInt32(); err != nil {
 		return
 	}
+
 	if s.duration, err = b.ReadCompressInt32(); err != nil {
 		return
 	}
 
 	// FIXME encrypt header & mp3 extra header decode
 
-	guidHeader := make([]byte, 51, 51)
+	// header format
+	// uint8 - idk default 02
+	// Buffer[16] - guid majorType
+	// Buffer[16] - guid subType
+	// uint16 - idk default 0001
+	// Buffer[16] - guid formatType
+	header := make([]byte, 51, 51)
+
 	// skip GUIDs header
-	if n, err := b.Read(guidHeader); err != nil {
+	var n int
+
+	if n, err = b.Read(header); err != nil {
 		return err
-	} else if n != len(guidHeader) {
+	}
+
+	if n != len(header) {
 		return io.EOF
 	}
 
-	if guidHeader[0] != 1 {
+	if header[0] != 1 {
 		var wavFormatLen byte
 		if wavFormatLen, err = b.ReadByte(); err != nil {
 			return
@@ -99,6 +113,7 @@ func (s *sound) Stream() (stream []byte, err error) {
 			return
 		}
 		s.stream = make([]byte, s.size, s.size)
+
 		var n int
 		if n, err = s.f.b.Read(s.stream); err != nil {
 			return
@@ -110,12 +125,18 @@ func (s *sound) Stream() (stream []byte, err error) {
 		if s.format.FormatTag == FormatTagPCM {
 			// fix wav header
 			buf := bytes.NewBuffer([]byte{})
-			buf.WriteString("RIFF")
+			if _, err = buf.WriteString("RIFF"); err != nil {
+				return
+			}
 			if err = binary.Write(buf, binary.LittleEndian, uint32(s.size+36)); err != nil {
 				return
 			}
-			buf.WriteString("WAVE")
-			buf.WriteString("fmt ")
+			if _, err = buf.WriteString("WAVE"); err != nil {
+				return
+			}
+			if _, err = buf.WriteString("fmt "); err != nil {
+				return
+			}
 			if err = binary.Write(buf, binary.LittleEndian, uint32(0x10)); err != nil {
 				return
 			}
@@ -138,7 +159,9 @@ func (s *sound) Stream() (stream []byte, err error) {
 			if err = binary.Write(buf, binary.LittleEndian, s.format.BitsPerSample); err != nil {
 				return
 			}
-			buf.WriteString("data")
+			if _, err = buf.WriteString("data"); err != nil {
+				return
+			}
 			if err = binary.Write(buf, binary.LittleEndian, s.size); err != nil {
 				return
 			}
