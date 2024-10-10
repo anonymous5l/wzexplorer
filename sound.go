@@ -88,30 +88,29 @@ func (s *sound) parse(f *file) (err error) {
 	//   uint16 - wBitsPerSample
 	//   uint16 - cbSize
 
-	var mt MediaType
-	if mt.SoundType, err = b.ReadByte(); err != nil {
+	if s.media.SoundType, err = b.ReadByte(); err != nil {
 		return
 	}
-	mt.MajorType = make([]byte, 16, 16)
-	if _, err = b.Read(mt.MajorType); err != nil {
+	s.media.MajorType = make([]byte, 16, 16)
+	if _, err = b.Read(s.media.MajorType); err != nil {
 		return
 	}
-	mt.SubType = make([]byte, 16, 16)
-	if _, err = b.Read(mt.SubType); err != nil {
+	s.media.SubType = make([]byte, 16, 16)
+	if _, err = b.Read(s.media.SubType); err != nil {
 		return
 	}
-	if mt.Reserved1, err = b.ReadByte(); err != nil {
+	if s.media.Reserved1, err = b.ReadByte(); err != nil {
 		return
 	}
-	if mt.Reserved2, err = b.ReadByte(); err != nil {
+	if s.media.Reserved2, err = b.ReadByte(); err != nil {
 		return
 	}
-	mt.FormatType = make([]byte, 16, 16)
-	if _, err = b.Read(mt.FormatType); err != nil {
+	s.media.FormatType = make([]byte, 16, 16)
+	if _, err = b.Read(s.media.FormatType); err != nil {
 		return
 	}
 
-	if mt.Reserved1 == 0 {
+	if s.media.Reserved1 == 0 {
 		var waveFormatSize byte
 		if waveFormatSize, err = b.ReadByte(); err != nil {
 			return
@@ -126,28 +125,28 @@ func (s *sound) parse(f *file) (err error) {
 		if ft, err = b.ReadUInt16(); err != nil {
 			return
 		}
-		mt.Format.FormatTag = FormatTag(ft)
-		if mt.Format.Channels, err = b.ReadUInt16(); err != nil {
+		s.media.Format.FormatTag = FormatTag(ft)
+		if s.media.Format.Channels, err = b.ReadUInt16(); err != nil {
 			return
 		}
-		if mt.Format.SamplesPerSec, err = b.ReadUInt32(); err != nil {
+		if s.media.Format.SamplesPerSec, err = b.ReadUInt32(); err != nil {
 			return
 		}
-		if mt.Format.AvgBytesPerSec, err = b.ReadUInt32(); err != nil {
+		if s.media.Format.AvgBytesPerSec, err = b.ReadUInt32(); err != nil {
 			return
 		}
-		if mt.Format.BlockAlign, err = b.ReadUInt16(); err != nil {
+		if s.media.Format.BlockAlign, err = b.ReadUInt16(); err != nil {
 			return
 		}
-		if mt.Format.BitsPerSample, err = b.ReadUInt16(); err != nil {
+		if s.media.Format.BitsPerSample, err = b.ReadUInt16(); err != nil {
 			return
 		}
-		if mt.Format.ExtraSize, err = b.ReadUInt16(); err != nil {
+		if s.media.Format.ExtraSize, err = b.ReadUInt16(); err != nil {
 			return
 		}
-		if mt.Format.ExtraSize > 0 {
-			mt.Format.Extra = make([]byte, mt.Format.ExtraSize, mt.Format.ExtraSize)
-			if _, err = b.Read(mt.Format.Extra); err != nil {
+		if s.media.Format.ExtraSize > 0 {
+			s.media.Format.Extra = make([]byte, s.media.Format.ExtraSize, s.media.Format.ExtraSize)
+			if _, err = b.Read(s.media.Format.Extra); err != nil {
 				return
 			}
 		}
