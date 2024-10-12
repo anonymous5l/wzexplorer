@@ -39,7 +39,7 @@ type MediaType struct {
 type Sound interface {
 	Duration() time.Duration
 	Media() MediaType
-	Stream() ([]byte, error)
+	Stream(raw bool) ([]byte, error)
 }
 
 // sound Sound_DX8
@@ -161,7 +161,7 @@ func (s *sound) parse(f *file) (err error) {
 	return
 }
 
-func (s *sound) Stream() (stream []byte, err error) {
+func (s *sound) Stream(raw bool) (stream []byte, err error) {
 	if s.stream == nil {
 		if _, err = s.f.b.Seek(s.offset, io.SeekStart); err != nil {
 			return
@@ -176,7 +176,7 @@ func (s *sound) Stream() (stream []byte, err error) {
 			return
 		}
 
-		if s.media.Format.FormatTag == FormatTagPCM {
+		if s.media.Format.FormatTag == FormatTagPCM && !raw {
 			// fix wav header
 			buf := bytes.NewBuffer([]byte{})
 			if _, err = buf.WriteString("RIFF"); err != nil {
@@ -207,7 +207,7 @@ func (s *sound) Stream() (stream []byte, err error) {
 				s.media.Format.SamplesPerSec*uint32(s.media.Format.Channels*s.media.Format.BitsPerSample)/8); err != nil {
 				return
 			}
-			if err = binary.Write(buf, binary.LittleEndian, s.media.Format.Channels*s.media.Format.BitsPerSample/8); err != nil {
+			if err = binary.Write(buf, binary.LittleEndian, s.media.Format.BlockAlign); err != nil {
 				return
 			}
 			if err = binary.Write(buf, binary.LittleEndian, s.media.Format.BitsPerSample); err != nil {
