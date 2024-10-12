@@ -48,7 +48,7 @@ func main() {
 	}
 	defer archive.Close()
 
-	obj, err := archive.GetPath("/Map/Back/poisonForest.img/back/12")
+	obj, err := archive.Get("/Map/Back/poisonForest/back/12")
 	if err != nil {
 		panic(err)
 	}
